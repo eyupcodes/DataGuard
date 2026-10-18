@@ -21,3 +21,4 @@ jobs:
       - run: ruff format --check .
       - run: python -m pytest --cov=dataguard --cov-fail-under=85
       - run: dataguard check examples/clean.jsonl --json-report reports/clean.json --html-report reports/clean.html
+      - run: dataguard check examples/clean.jsonl --against examples/heldout.jsonl

@@ -55,3 +55,21 @@ def test_unknown_format_and_output_collision(tmp_path):
         ).exit_code
         == 2
     )
+
+
+def test_against_cli_reports_leakage_and_protects_reference(tmp_path):
+    data = tmp_path / "train.jsonl"
+    reference = tmp_path / "test.jsonl"
+    content = '{"text":"A sufficiently long shared example"}\n'
+    data.write_text(content, encoding="utf-8")
+    reference.write_text(content, encoding="utf-8")
+    result = runner.invoke(app, ["check", str(data), "--against", str(reference)])
+    assert result.exit_code == 1
+    assert "leak_exact: 1" in result.stdout
+    assert (
+        runner.invoke(
+            app, ["check", str(data), "--against", str(reference), "--json-report", str(reference)]
+        ).exit_code
+        == 2
+    )
+    assert reference.read_text(encoding="utf-8") == content
