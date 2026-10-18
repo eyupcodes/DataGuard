@@ -78,12 +78,9 @@ def check(
                 path.write_text(content, encoding="utf-8")
     except (OSError, ValueError, TypeError) as exc:
         # Parsing libraries may echo input; keep their raw error text out of reports.
-        message = (
-            str(exc)
-            if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError)
-            else "Unable to read input or write report; check paths and format"
+        typer.echo(
+            "Input error: check file formats, schema, dependencies and report paths", err=True
         )
-        typer.echo(f"Input error: {message}", err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"{report.rows} rows; {len(report.findings)} findings")
     for code in sorted({f.code for f in report.findings}):

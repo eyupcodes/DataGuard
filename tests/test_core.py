@@ -69,6 +69,8 @@ def test_pii_patterns_validate_checksums_and_never_echo_values():
     assert not valid_iban("GB00 WEST 1234 5698 7654 32")
     assert not valid_iban("invalid")
     assert "iban" in pii_types("GB82WEST12345698765432")
+    assert "iban" in pii_types("Pay GB82 WEST 1234 5698 7654 32 today please")
+    assert "phone" in pii_types("05551234567")
     assert "tc_identity" in pii_types("10000000146")
     report = scan([{"text": "A long safe string", "contact": {"email": email}, "label": email}])
     assert "pii_email" in {f.code for f in report.findings}

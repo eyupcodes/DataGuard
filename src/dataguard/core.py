@@ -93,8 +93,12 @@ def pii_types(text: str) -> set[str]:
         kinds.add("phone")
     if any(valid_tc(m) for m in re.findall(r"(?<!\d)\d{11}(?!\d)", text)):
         kinds.add("tc_identity")
+    iban_candidates = re.findall(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b", text.upper())
     if any(
-        valid_iban(m) for m in re.findall(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b", text.upper())
+        valid_iban(re.sub(r"\s", "", value)[:length])
+        for value in iban_candidates
+        for length in range(15, 35)
+        if len(re.sub(r"\s", "", value)) >= length
     ):
         kinds.add("iban")
     return kinds
