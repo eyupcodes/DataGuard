@@ -1,0 +1,23 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: '3.11'}
+          - {os: ubuntu-latest, python: '3.14'}
+          - {os: windows-latest, python: '3.11'}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev,parquet]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python -m pytest --cov=dataguard --cov-fail-under=85
+      - run: dataguard check examples/clean.jsonl --json-report reports/clean.json --html-report reports/clean.html
