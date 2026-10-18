@@ -73,3 +73,21 @@ def test_pii_patterns_validate_checksums_and_never_echo_values():
     report = scan([{"text": "A long safe string", "contact": {"email": email}, "label": email}])
     assert "pii_email" in {f.code for f in report.findings}
     assert email not in report.model_dump_json()
+
+
+def test_duplicate_and_cross_split_locations():
+    original = "one two three four five six seven eight nine ten eleven twelve"
+    rows = [
+        {"text": original},
+        {"text": original.upper()},
+        {"text": original + " thirteen"},
+        {"text": None},
+    ]
+    report = scan(rows, against=[{"text": original}])
+    findings = {f.code: f for f in report.findings}
+    assert findings["duplicate_exact"].row == 2
+    assert findings["duplicate_near"].row == 3
+    assert findings["leak_exact"].severity == "error"
+    assert "against_row=1" in findings["leak_near"].detail
+    assert report.against_rows == 1
+    assert original not in report.model_dump_json()

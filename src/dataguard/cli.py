@@ -30,6 +30,8 @@ def check(
     label_field: str = "label",
     min_length: Annotated[int, typer.Option(min=0)] = 10,
     schema: Path | None = None,
+    against: Path | None = None,
+    near_threshold: Annotated[float, typer.Option(min=0.01, max=1)] = 0.8,
     json_report: Path | None = None,
     html_report: Path | None = None,
     fail_on: FailOn = FailOn.warning,
@@ -38,6 +40,8 @@ def check(
     try:
         outputs = [p.resolve() for p in (json_report, html_report) if p]
         inputs = [data.resolve()] + ([schema.resolve()] if schema else [])
+        if against:
+            inputs.append(against.resolve())
         if any(p in inputs for p in outputs) or len(set(outputs)) != len(outputs):
             raise ValueError("Report paths must differ from input paths and each other")
         spec = json.loads(schema.read_text(encoding="utf-8-sig")) if schema else None
@@ -48,7 +52,16 @@ def check(
             )
         ):
             raise ValueError("Schema must be an object with field names as keys")
-        report = scan(read_rows(data), data.name, text_field, label_field, min_length, spec)
+        report = scan(
+            read_rows(data),
+            data.name,
+            text_field,
+            label_field,
+            min_length,
+            spec,
+            read_rows(against) if against else None,
+            near_threshold,
+        )
         payload = report.model_dump_json(indent=2)
         for path, content in (
             (json_report, payload),

@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
+from .similarity import matches
+
 
 class Finding(BaseModel):
     code: str
@@ -23,6 +25,7 @@ class Report(BaseModel):
     rows: int
     findings: list[Finding] = Field(default_factory=list)
     labels: dict[str, int] = Field(default_factory=dict)
+    against_rows: int | None = None
 
     def failed(self, level: str = "warning") -> bool:
         return any(f.severity == "error" or level == "warning" for f in self.findings)
@@ -104,6 +107,8 @@ def scan(
     label_field: str = "label",
     min_length: int = 10,
     schema: dict[str, str] | None = None,
+    against: list[dict[str, Any]] | None = None,
+    near_threshold: float = 0.8,
 ) -> Report:
     report = Report(source=source, rows=len(rows))
     model = schema_model(schema) if schema is not None else None
@@ -146,4 +151,29 @@ def scan(
     report.labels = dict(sorted(labels.items()))
     if labels and max(labels.values()) / sum(labels.values()) > 0.8:
         report.findings.append(Finding(code="label_imbalance", detail="Largest class exceeds 80%"))
+    texts = [row.get(text_field) if isinstance(row.get(text_field), str) else "" for row in rows]
+    for match in matches(texts, threshold=near_threshold):
+        report.findings.append(
+            Finding(
+                code=f"duplicate_{match.kind}",
+                row=match.row,
+                field=text_field,
+                detail=f"other_row={match.other_row}; similarity={match.similarity:.3f}",
+            )
+        )
+    if against is not None:
+        report.against_rows = len(against)
+        reference = [
+            row.get(text_field) if isinstance(row.get(text_field), str) else "" for row in against
+        ]
+        for match in matches(reference, texts, threshold=near_threshold):
+            report.findings.append(
+                Finding(
+                    code=f"leak_{match.kind}",
+                    severity="error",
+                    row=match.row,
+                    field=text_field,
+                    detail=f"against_row={match.other_row}; similarity={match.similarity:.3f}",
+                )
+            )
     return report
