@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataguard-local"
+version = "0.1.0"
+description = "Local dataset quality checks for ML and LLM workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["typer>=0.16,<1", "pydantic>=2.10,<3"]
+
+[project.optional-dependencies]
+parquet = ["pyarrow>=20"]
+dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.12"]
+
+[project.scripts]
+dataguard = "dataguard.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataguard"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["dataguard"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
