@@ -9,7 +9,7 @@ python -m pip install -e ".[dev,parquet]"
 dataguard check examples/clean.jsonl --json-report reports/clean.json --html-report reports/clean.html
 ```
 
-The example returns exit **0**. JSONL, CSV and Parquet are supported; Parquet needs the optional `parquet` extra. Inputs are loaded into memory, so this first version targets small and medium datasets.
+The example returns exit **0**. JSONL, CSV and Parquet are supported; Parquet needs the optional `parquet` extra. Default scans load inputs into memory. Use `--streaming` for larger datasets.
 
 Checks: strict field/type schema validation, missing/empty/short text, email/phone/Turkish identity/IBAN candidates, label distribution and class imbalance (largest class >80%), exact/near duplicates and cross-file leakage. Reports contain row/field locations and finding types, without matched text or personal values. Label values containing detected PII are redacted.
 
@@ -30,7 +30,22 @@ PII detection is heuristic, not a privacy guarantee. Identity numbers and IBANs 
 
 Exact matches normalize whitespace and case. Each exact duplicate points to the first matching source row. Near matching uses word trigrams, 64 deterministic MinHash permutations and 16 LSH bands, then verifies candidate pairs with exact Jaccard overlap. `--near-threshold` defaults to 0.8 (CLI range 0.01–1). Short texts use their full token sequence as one shingle; empty/punctuation-only texts do not generate near candidates.
 
-**MinHash is approximate candidate discovery:** near matches can be missed. Reported near-match scores are exact Jaccard values for discovered candidates. This is lexical similarity, not semantic deduplication, and is not a guarantee that a train/test split has no leakage. Exact normalized matches are checked independently of MinHash. Large groups of near duplicates can produce many findings; streaming/capacity controls are future work in #3.
+**MinHash is approximate candidate discovery:** near matches can be missed. Reported near-match scores are exact Jaccard values for discovered candidates. This is lexical similarity, not semantic deduplication, and is not a guarantee that a train/test split has no leakage. Exact normalized matches are checked independently of MinHash.
+
+## Streaming large datasets
+
+```sh
+dataguard check train.jsonl --streaming --batch-size 128 --max-findings 1000 --max-labels 1000 --json-report reports/train.json
+dataguard check train.jsonl --streaming --against test.parquet --fail-on error
+```
+
+Streaming reads JSONL/CSV incrementally and Parquet in record batches. Row checks, schema validation, PII detection and label totals cover the entire input. A temporary SQLite index stores SHA-256 digests of normalized text and the first row number, enabling exact duplicate detection across batches and exact held-out matches without keeping all texts in RAM. The index is deleted on normal completion or an exception; abrupt process termination can leave temporary files. It contains digests, not original text; digests are not anonymization for guessable inputs.
+
+**Near matches are checked only within each primary batch.** Cross-batch and cross-file near matches are not checked in streaming mode. JSON reports declare `near_match_scope: "within_primary_batch_only"`, and the CLI prints this limitation. Use a regular scan when whole-dataset near matching is required; both modes still have approximate MinHash recall.
+
+`--batch-size` defaults to 128 (CLI range 1–2048). `--max-findings` caps stored finding details (default 1000; 0 stores counts only), while `finding_counts` and `severity_counts` count every detected finding. `findings_truncated` records omitted details. Exit codes use the full counts, so an omitted error still fails `--fail-on error`. Label imbalance is computed once from global label totals. More than `--max-labels` distinct redacted labels (default 1000) stops with exit 2 instead of silently losing classes.
+
+RAM depends on batch size, row size, label capacity and retained findings rather than total row count. Large individual records, Parquet metadata/decoding, and dense near-match pairs within a batch can still be expensive. Disk use grows with distinct normalized texts; storage exhaustion fails with exit 2. Streaming is not a fixed byte budget. Capacity flags apply only with `--streaming`.
 
 ## Development
 

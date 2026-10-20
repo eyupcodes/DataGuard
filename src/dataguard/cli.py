@@ -2,6 +2,7 @@
 
 import html
 import json
+import sqlite3
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -9,6 +10,7 @@ from typing import Annotated
 import typer
 
 from .core import read_rows, scan
+from .streaming import StreamingReport, scan_stream
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -35,6 +37,10 @@ def check(
     json_report: Path | None = None,
     html_report: Path | None = None,
     fail_on: FailOn = FailOn.warning,
+    streaming: bool = False,
+    batch_size: Annotated[int, typer.Option(min=1, max=2048)] = 128,
+    max_findings: Annotated[int, typer.Option(min=0)] = 1000,
+    max_labels: Annotated[int, typer.Option(min=1)] = 1000,
 ) -> None:
     """Scan JSONL, CSV or Parquet and optionally write redacted reports."""
     try:
@@ -52,16 +58,30 @@ def check(
             )
         ):
             raise ValueError("Schema must be an object with field names as keys")
-        report = scan(
-            read_rows(data),
-            data.name,
-            text_field,
-            label_field,
-            min_length,
-            spec,
-            read_rows(against) if against else None,
-            near_threshold,
-        )
+        if streaming:
+            report = scan_stream(
+                data,
+                text_field=text_field,
+                label_field=label_field,
+                min_length=min_length,
+                schema=spec,
+                against=against,
+                near_threshold=near_threshold,
+                batch_size=batch_size,
+                max_findings=max_findings,
+                max_labels=max_labels,
+            )
+        else:
+            report = scan(
+                read_rows(data),
+                data.name,
+                text_field,
+                label_field,
+                min_length,
+                spec,
+                read_rows(against) if against else None,
+                near_threshold,
+            )
         payload = report.model_dump_json(indent=2)
         for path, content in (
             (json_report, payload),
@@ -76,13 +96,25 @@ def check(
             if path:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
         # Parsing libraries may echo input; keep their raw error text out of reports.
         typer.echo(
             "Input error: check file formats, schema, dependencies and report paths", err=True
         )
         raise typer.Exit(2) from exc
-    typer.echo(f"{report.rows} rows; {len(report.findings)} findings")
-    for code in sorted({f.code for f in report.findings}):
-        typer.echo(f"  {code}: {sum(f.code == code for f in report.findings)}")
+    counts = (
+        report.finding_counts
+        if isinstance(report, StreamingReport)
+        else {
+            code: sum(f.code == code for f in report.findings)
+            for code in {f.code for f in report.findings}
+        }
+    )
+    typer.echo(f"{report.rows} rows; {sum(counts.values())} findings")
+    if isinstance(report, StreamingReport):
+        typer.echo("Near matches: within each primary batch only; cross-file: exact only")
+        if report.findings_truncated:
+            typer.echo(f"Finding details capped at {len(report.findings)}; counts include all")
+    for code in sorted(counts):
+        typer.echo(f"  {code}: {counts[code]}")
     raise typer.Exit(1 if report.failed(fail_on.value) else 0)
