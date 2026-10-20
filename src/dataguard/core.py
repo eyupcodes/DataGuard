@@ -4,6 +4,7 @@ import csv
 import json
 import re
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -32,29 +33,36 @@ class Report(BaseModel):
 
 
 def read_rows(path: Path) -> list[dict[str, Any]]:
+    return list(iter_rows(path))
+
+
+def iter_rows(path: Path, batch_size: int = 128) -> Iterator[dict[str, Any]]:
+    """Read one row at a time; Parquet decoding uses bounded record batches."""
     if path.suffix.lower() == ".jsonl":
-        rows = []
-        for n, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
-            if not line.strip():
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSONL at line {n}") from exc
+        with path.open(encoding="utf-8-sig") as handle:
+            for n, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Invalid JSONL at line {n}") from exc
+                if not isinstance(row, dict):
+                    raise ValueError("Each row must be an object")
+                yield row
     elif path.suffix.lower() == ".csv":
         with path.open(encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
+            yield from csv.DictReader(handle)
     elif path.suffix.lower() == ".parquet":
         try:
             import pyarrow.parquet as pq
         except ImportError as exc:
             raise ValueError("Parquet requires pip install 'dataguard-local[parquet]'") from exc
-        rows = pq.read_table(path).to_pylist()
+        with pq.ParquetFile(path) as parquet:
+            for batch in parquet.iter_batches(batch_size=batch_size):
+                yield from batch.to_pylist()
     else:
         raise ValueError("Expected .jsonl, .csv or .parquet")
-    if any(not isinstance(row, dict) for row in rows):
-        raise ValueError("Each row must be an object")
-    return rows
 
 
 def schema_model(spec: dict[str, str]) -> type[BaseModel]:

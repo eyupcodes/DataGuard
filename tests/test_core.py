@@ -4,7 +4,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from dataguard.core import pii_types, read_rows, scan, schema_model, valid_iban, valid_tc
+from dataguard.core import iter_rows, pii_types, read_rows, scan, schema_model, valid_iban, valid_tc
+
+
+def test_reader_yields_before_parsing_later_invalid_rows(tmp_path):
+    path = tmp_path / "input.jsonl"
+    path.write_text('{"text":"first"}\n\ninvalid', encoding="utf-8")
+    rows = iter_rows(path)
+    assert next(rows) == {"text": "first"}
+    with pytest.raises(ValueError, match="line 3"):
+        next(rows)
 
 
 def test_readers(tmp_path):
